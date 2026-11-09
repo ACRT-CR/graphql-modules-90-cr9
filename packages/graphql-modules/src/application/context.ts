@@ -3,15 +3,21 @@ import { ResolvedProvider } from '../di/resolution';
 import { ID } from '../shared/types';
 import { once, merge } from '../shared/utils';
 import type { InternalAppContext, ModulesMap } from './application';
+import async_context from '#async-context';
 import { attachGlobalProvidersMap } from './di';
 import { CONTEXT } from './tokens';
-import { executionContext, ExecutionContextPicker } from './execution-context';
 
 export type ExecutionContextBuilder<
   TContext extends {
     [key: string]: any;
   } = {},
-> = (context: TContext) => {
+> = (context: TContext) => ExecutionContextEnv & {
+  runWithContext<TReturn = any>(
+    cb: (env: ExecutionContextEnv) => TReturn
+  ): TReturn;
+};
+
+export type ExecutionContextEnv = {
   context: InternalAppContext;
   ɵdestroy(): void;
   ɵinjector: Injector;
@@ -67,13 +73,18 @@ export function createContextBuilder({
       },
     });
 
-    appInjector.setExecutionContextGetter(
-      executionContext.getApplicationContext as any
-    );
+    appInjector.setExecutionContextGetter(function executionContextGetter() {
+      return (
+        async_context.getAsyncContext()?.getApplicationContext() || appContext
+      );
+    } as any);
 
     function createModuleExecutionContextGetter(moduleId: string) {
       return function moduleExecutionContextGetter() {
-        return executionContext.getModuleContext(moduleId);
+        return (
+          async_context.getAsyncContext()?.getModuleContext(moduleId) ||
+          getModuleContext(moduleId, context)
+        );
       };
     }
 
@@ -82,18 +93,6 @@ export function createContextBuilder({
         createModuleExecutionContextGetter(moduleId)
       );
     });
-
-    const executionContextPicker: ExecutionContextPicker = {
-      getApplicationContext() {
-        return appContext;
-      },
-      getModuleContext(moduleId) {
-        return getModuleContext(moduleId, context);
-      },
-    };
-    const destroyExecutionContext = executionContext.create(
-      executionContextPicker
-    );
 
     // As the name of the Injector says, it's an Operation scoped Injector
     // Application level
@@ -177,7 +176,7 @@ export function createContextBuilder({
       },
     });
 
-    return {
+    const env: ExecutionContextEnv = {
       ɵdestroy: once(() => {
         providersToDestroy.forEach(([injector, keyId]) => {
           // If provider was instantiated
@@ -186,11 +185,28 @@ export function createContextBuilder({
             injector._getObjByKeyId(keyId).onDestroy();
           }
         });
-        destroyExecutionContext();
         contextCache = {};
       }),
       ɵinjector: operationAppInjector,
       context: sharedContext,
+    };
+
+    return {
+      ...env,
+      runWithContext(cb) {
+        return async_context.runWithAsyncContext(
+          {
+            getApplicationContext() {
+              return appContext;
+            },
+            getModuleContext(moduleId) {
+              return getModuleContext(moduleId, context);
+            },
+          },
+          cb,
+          env
+        );
+      },
     };
   };
 

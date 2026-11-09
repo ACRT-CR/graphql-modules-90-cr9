@@ -40,10 +40,11 @@ This way the Singleton `Data` service runs within the execution context of a Gra
 It also means you gain a lot in terms of performance because the `Data` class is instantiated only once and used in many operations.
 
 <Callout>
-  `@ExecutionContext` impacts the performance, depending on your Node version
-  (execution context uses `async_hooks` module).
+  Execution context uses the `async_hooks` module, and therefore `@ExecutionContext` impacts the performance.
 
 GraphQL Modules is smart enough to enable `async_hooks` only when
-`@ExecutionContext` is used.
+`@ExecutionContext` is used though.
+
+Note that `async_hooks` is important to avoid race conditions concurrent parallel requests.
 
 </Callout>
